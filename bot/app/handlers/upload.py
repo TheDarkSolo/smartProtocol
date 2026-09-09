@@ -73,8 +73,11 @@ async def _handle_upload(
     buffer = await bot.download_file(file.file_path)
     payload = buffer.read()
 
+    user_id = str(message.from_user.id)
     try:
-        case = await api_client.create_case(filename=filename, content_type=content_type, payload=payload)
+        case = await api_client.create_case(
+            filename=filename, content_type=content_type, payload=payload, user_id=user_id
+        )
     except api_client.ApiError as exc:
         if exc.status_code:
             await status_message.edit_text(str(exc))
@@ -91,7 +94,7 @@ async def _handle_upload(
         return
 
     try:
-        facts = await api_client.fetch_case_facts(case.case_id)
+        facts = await api_client.fetch_case_facts(case.case_id, user_id=user_id)
     except api_client.ApiError as exc:
         await message.answer(t(lang, "backend_offline") if not exc.status_code else str(exc))
         return

@@ -114,7 +114,9 @@ async def _finish(message: Message, state: FSMContext, lang: str) -> None:
     }
 
     try:
-        result = await api_client.draft_appeal(case_id=case_id, ground_id=GROUND_ID, facts=facts)
+        result = await api_client.draft_appeal(
+            case_id=case_id, ground_id=GROUND_ID, facts=facts, user_id=str(message.from_user.id)
+        )
     except api_client.ApiError as exc:
         await status_message.edit_text(t(lang, "draft_failed", error=str(exc)))
         await state.clear()

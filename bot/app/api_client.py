@@ -3,6 +3,10 @@
 Бот не хранит бизнес-логику: он собирает файл от пользователя и передаёт его
 на бэкенд тем же путём, что и веб-загрузка (POST /api/cases), — единая точка
 принятия постановлений вместо двух параллельных реализаций.
+
+Каждый вызов несёт X-User-Id (Telegram user id) — по нему бэкенд считает
+уникальных пользователей бота в журнале событий (app/db.py). У веба такой
+identity пока нет (анонимная сессия), поэтому статистика различает источники.
 """
 
 from dataclasses import dataclass
@@ -10,6 +14,10 @@ from dataclasses import dataclass
 import httpx
 
 from .config import settings
+
+
+def _headers(user_id: str) -> dict[str, str]:
+    return {"X-User-Id": user_id}
 
 
 class ApiError(RuntimeError):
@@ -38,11 +46,13 @@ async def fetch_config() -> PublicConfig:
     return PublicConfig(max_upload_bytes=data["max_upload_bytes"], allowed_mime=data["allowed_mime"])
 
 
-async def create_case(*, filename: str, content_type: str, payload: bytes) -> CaseCreated:
+async def create_case(*, filename: str, content_type: str, payload: bytes, user_id: str) -> CaseCreated:
     files = {"file": (filename, payload, content_type)}
     try:
         async with httpx.AsyncClient(timeout=30) as client:
-            response = await client.post(f"{settings.api_base_url}/api/cases", files=files)
+            response = await client.post(
+                f"{settings.api_base_url}/api/cases", files=files, headers=_headers(user_id)
+            )
     except httpx.HTTPError as exc:
         raise ApiError(f"Бэкенд недоступен: {exc}") from exc
 
@@ -54,11 +64,13 @@ async def create_case(*, filename: str, content_type: str, payload: bytes) -> Ca
     return CaseCreated(case_id=data["case_id"], status=data["status"])
 
 
-async def fetch_case_facts(case_id: str) -> dict:
+async def fetch_case_facts(case_id: str, *, user_id: str) -> dict:
     """Разбор PDF + перенос объективных полей в форму жалобы, одним запросом."""
     try:
         async with httpx.AsyncClient(timeout=30) as client:
-            response = await client.post(f"{settings.api_base_url}/api/cases/{case_id}/facts")
+            response = await client.post(
+                f"{settings.api_base_url}/api/cases/{case_id}/facts", headers=_headers(user_id)
+            )
     except httpx.HTTPError as exc:
         raise ApiError(f"Бэкенд недоступен: {exc}") from exc
 
@@ -69,11 +81,13 @@ async def fetch_case_facts(case_id: str) -> dict:
     return response.json()
 
 
-async def draft_appeal(*, case_id: str, ground_id: str, facts: dict) -> dict:
+async def draft_appeal(*, case_id: str, ground_id: str, facts: dict, user_id: str) -> dict:
     body = {"ground_id": ground_id, "facts": facts}
     try:
         async with httpx.AsyncClient(timeout=60) as client:
-            response = await client.post(f"{settings.api_base_url}/api/cases/{case_id}/draft", json=body)
+            response = await client.post(
+                f"{settings.api_base_url}/api/cases/{case_id}/draft", json=body, headers=_headers(user_id)
+            )
     except httpx.HTTPError as exc:
         raise ApiError(f"Бэкенд недоступен: {exc}") from exc
 

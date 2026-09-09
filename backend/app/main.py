@@ -9,9 +9,10 @@ import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 
-from fastapi import FastAPI, File, HTTPException, UploadFile
+from fastapi import FastAPI, File, Header, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 
+from . import db
 from .config import settings
 from .schemas import (
     AppealDraftRequest,
@@ -57,7 +58,10 @@ def public_config() -> PublicConfig:
 
 
 @app.post("/api/cases", response_model=CaseCreated, status_code=201)
-async def create_case(file: UploadFile = File(...)) -> CaseCreated:
+async def create_case(
+    file: UploadFile = File(...),
+    x_user_id: str | None = Header(default=None, alias="X-User-Id"),
+) -> CaseCreated:
     """Принять постановление и завести дело.
 
     Файл читается целиком в память только потому, что лимит — 15 МБ. При
@@ -87,6 +91,8 @@ async def create_case(file: UploadFile = File(...)) -> CaseCreated:
     target_dir = Path(settings.upload_dir)
     target_dir.mkdir(parents=True, exist_ok=True)
     (target_dir / f"{case_id}{suffix}").write_bytes(payload)
+
+    db.log_event("case_created", case_id=case_id, user_id=x_user_id)
 
     return CaseCreated(
         case_id=case_id,
@@ -153,7 +159,10 @@ async def extract_case_decree(case_id: str) -> ExtractedDecreeResponse:
 
 
 @app.post("/api/cases/{case_id}/facts", response_model=MappedAppealFacts)
-async def case_facts(case_id: str) -> MappedAppealFacts:
+async def case_facts(
+    case_id: str,
+    x_user_id: str | None = Header(default=None, alias="X-User-Id"),
+) -> MappedAppealFacts:
     """Разбор + перенос объективных полей документа в форму жалобы, одним
     вызовом. То, что нельзя достать из документа (обстоятельства защиты),
     остаётся вне этого ответа — их обязан спросить сам диалог с пользователем.
@@ -170,6 +179,12 @@ async def case_facts(case_id: str) -> MappedAppealFacts:
 
     missing = [key for key, value in mapped.items() if value is None]
 
+    db.log_event(
+        "extracted" if decree.is_protocol else "protocol_rejected",
+        case_id=case_id,
+        user_id=x_user_id,
+    )
+
     return MappedAppealFacts(
         **mapped,
         article_code=decree.article_code,
@@ -182,7 +197,11 @@ async def case_facts(case_id: str) -> MappedAppealFacts:
 
 
 @app.post("/api/cases/{case_id}/draft", response_model=AppealDraftResponse)
-async def draft_case_appeal(case_id: str, body: AppealDraftRequest) -> AppealDraftResponse:
+async def draft_case_appeal(
+    case_id: str,
+    body: AppealDraftRequest,
+    x_user_id: str | None = Header(default=None, alias="X-User-Id"),
+) -> AppealDraftResponse:
     """Собрать черновик жалобы по одному отработанному основанию.
 
     Прямого прохода: пока нет ни БД дел, ни разбора документа (Этап 1 в
@@ -194,6 +213,8 @@ async def draft_case_appeal(case_id: str, body: AppealDraftRequest) -> AppealDra
         result = await draft_appeal(ground_id=body.ground_id, facts=body.facts.model_dump())
     except UnknownGroundError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    db.log_event("draft_created", case_id=case_id, user_id=x_user_id)
 
     return AppealDraftResponse(
         document_text=result.document_text,
