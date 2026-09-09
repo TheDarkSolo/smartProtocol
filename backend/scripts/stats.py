@@ -77,6 +77,21 @@ def main() -> None:
     else:
         print("  Пока нет.")
 
+    cur.execute("SELECT COUNT(*) FROM missed_grounds")
+    (missed_count,) = cur.fetchone()
+    print("\nНе нашли основания (рассказ пользователя своими словами):")
+    if missed_count:
+        print(f"  Всего: {missed_count} — сырьё для kz-legal-researcher, какие основания добавлять следующими")
+        cur.execute(
+            "SELECT article_code, offense_description, note, created_at "
+            "FROM missed_grounds ORDER BY created_at DESC LIMIT 15"
+        )
+        for article_code, offense_description, note, created_at in cur.fetchall():
+            print(f"  [{created_at}] {article_code or '—'} ({offense_description or '—'})")
+            print(f"    \"{note}\"")
+    else:
+        print("  Пока нет.")
+
 
 if __name__ == "__main__":
     main()

@@ -163,3 +163,13 @@ class ReviewRequest(BaseModel):
 
 class ReviewResponse(BaseModel):
     ok: bool = True
+
+
+class MissedGroundRequest(BaseModel):
+    note: str = Field(min_length=1)
+    article_code: str | None = None
+    offense_description: str | None = None
+
+
+class MissedGroundResponse(BaseModel):
+    ok: bool = True

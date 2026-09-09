@@ -44,6 +44,19 @@ def _connect() -> sqlite3.Connection:
         )
         """
     )
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS missed_grounds (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            case_id TEXT,
+            user_id TEXT,
+            article_code TEXT,
+            offense_description TEXT,
+            note TEXT NOT NULL,
+            created_at TEXT NOT NULL
+        )
+        """
+    )
     return conn
 
 
@@ -65,4 +78,27 @@ def save_review(*, rating: int, case_id: str | None = None, user_id: str | None 
         conn.execute(
             "INSERT INTO reviews (case_id, user_id, rating, comment, created_at) VALUES (?, ?, ?, ?, ?)",
             (case_id, user_id, rating, comment, datetime.now(timezone.utc).isoformat()),
+        )
+
+
+def log_missed_ground(
+    *,
+    note: str,
+    case_id: str | None = None,
+    user_id: str | None = None,
+    article_code: str | None = None,
+    offense_description: str | None = None,
+) -> None:
+    """Свободный рассказ пользователя о своей ситуации, когда ни одно готовое
+    основание не подошло. Не превращается в документ сама по себе (бот не
+    выдумывает основание под неё) — это сырьё для kz-legal-researcher: по
+    накопленным заметкам видно, какие реальные основания стоит исследовать
+    и добавлять следующими (см. ROADMAP.md, этап 5)."""
+    with _connect() as conn:
+        conn.execute(
+            """
+            INSERT INTO missed_grounds (case_id, user_id, article_code, offense_description, note, created_at)
+            VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (case_id, user_id, article_code, offense_description, note, datetime.now(timezone.utc).isoformat()),
         )

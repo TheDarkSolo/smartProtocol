@@ -109,6 +109,7 @@ _TELEGRAM_MESSAGE_LIMIT = 4000
 class AppealStates(StatesGroup):
     ask_missing_field = State()
     ask_ground_choice = State()
+    ask_catchall = State()
     ask_universal_q1 = State()
     ask_universal_q2 = State()
     ask_distance = State()
@@ -183,11 +184,36 @@ async def _route_after_required_fields(
 
 @router.callback_query(AppealStates.ask_ground_choice, F.data == "ground_choice:none")
 async def on_ground_choice_none(callback: CallbackQuery, state: FSMContext) -> None:
+    """Ни один из готовых вариантов не подошёл — прежде чем остановиться,
+    даём человеку сказать своими словами, было ли что-то ещё. Бот не строит
+    из этого документ (не подгоняет факты под основание и не выдумывает
+    норму под состав) — это идёт в missed_grounds на изучение, чтобы
+    следующее реальное основание добавлялось по опыту живых дел, а не
+    наугад (см. .claude/agents/kz-legal-researcher.md, ROADMAP.md этап 5)."""
     lang = get_lang(callback.from_user.id)
     await callback.answer()
     if callback.message is not None:
         await callback.message.edit_reply_markup(reply_markup=None)
-        await callback.message.answer(t(lang, "ground_not_supported"))
+        await callback.message.answer(t(lang, "ask_catchall"))
+    await state.set_state(AppealStates.ask_catchall)
+
+
+@router.message(AppealStates.ask_catchall, F.text)
+async def on_catchall_answer(message: Message, state: FSMContext) -> None:
+    lang = get_lang(message.from_user.id)
+    data = await state.get_data()
+    base_facts = data.get("base_facts") or {}
+
+    await api_client.submit_missed_ground(
+        case_id=data.get("case_id"),
+        note=message.text.strip(),
+        article_code=base_facts.get("article_code"),
+        offense_description=base_facts.get("offense_description"),
+        user_id=str(message.from_user.id),
+    )
+
+    await message.answer(t(lang, "catchall_thanks"))
+    await message.answer(t(lang, "ground_not_supported"))
     await state.clear()
 
 

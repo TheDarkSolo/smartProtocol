@@ -96,6 +96,22 @@ async def submit_review(*, case_id: str, rating: int, comment: str | None, user_
         pass
 
 
+async def submit_missed_ground(
+    *, case_id: str, note: str, article_code: str | None, offense_description: str | None, user_id: str
+) -> None:
+    body = {"note": note, "article_code": article_code, "offense_description": offense_description}
+    try:
+        async with httpx.AsyncClient(timeout=15) as client:
+            response = await client.post(
+                f"{settings.api_base_url}/api/cases/{case_id}/missed-ground", json=body, headers=_headers(user_id)
+            )
+        response.raise_for_status()
+    except httpx.HTTPError:
+        # Как и с отзывом — необязательный шаг, не блокируем пользователя
+        # из-за временной недоступности бэкенда.
+        pass
+
+
 async def draft_appeal(*, case_id: str, ground_id: str, facts: dict, user_id: str) -> dict:
     body = {"ground_id": ground_id, "facts": facts}
     try:

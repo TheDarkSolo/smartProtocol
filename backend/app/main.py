@@ -21,6 +21,8 @@ from .schemas import (
     CaseStatus,
     ExtractedDecreeResponse,
     MappedAppealFacts,
+    MissedGroundRequest,
+    MissedGroundResponse,
     PublicConfig,
     ReviewRequest,
     ReviewResponse,
@@ -237,3 +239,24 @@ async def submit_review(
     как есть, это не проблема на объёме одного бота на тестовой стадии."""
     db.save_review(rating=body.rating, case_id=case_id, user_id=x_user_id, comment=body.comment)
     return ReviewResponse()
+
+
+@app.post("/api/cases/{case_id}/missed-ground", response_model=MissedGroundResponse)
+async def submit_missed_ground(
+    case_id: str,
+    body: MissedGroundRequest,
+    x_user_id: str | None = Header(default=None, alias="X-User-Id"),
+) -> MissedGroundResponse:
+    """Свободный рассказ пользователя, когда ни одно готовое основание не
+    подошло. Не составляет из этого документ — бот не подгоняет факты под
+    основание и не выдумывает норму под состав. Это сырьё для будущего
+    исследования: по накопленным заметкам видно, какие реальные основания
+    стоит добавить следующими (см. ROADMAP.md, этап 5)."""
+    db.log_missed_ground(
+        note=body.note,
+        case_id=case_id,
+        user_id=x_user_id,
+        article_code=body.article_code,
+        offense_description=body.offense_description,
+    )
+    return MissedGroundResponse()
