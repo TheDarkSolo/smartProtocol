@@ -55,6 +55,19 @@ class ExtractedDecree:
     source_page: int | None = None
     warnings: list[str] = field(default_factory=list)
 
+    @property
+    def is_protocol(self) -> bool:
+        """Уверенно ли это вообще постановление/предписание по ПДД РК.
+
+        Проверяем не общий набор совпавших полей (случайный PDF может
+        случайно дать пару совпадений), а именно связку "номер документа +
+        статья КоАП" — она встречается только в реальном постановлении.
+        Это и есть быстрый отказ до какой-либо дальнейшей обработки: чужой
+        PDF отклоняется здесь, не доходя ни до уточняющих вопросов, ни тем
+        более до вызова DeepSeek.
+        """
+        return bool(self.decree_number and self.article_code)
+
 
 def extract_pages_text(pdf_bytes: bytes) -> list[str]:
     with pdfplumber.open(io.BytesIO(pdf_bytes)) as pdf:

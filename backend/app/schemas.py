@@ -95,6 +95,9 @@ class ExtractedDecreeResponse(BaseModel):
     device_name: str | None
     device_verified_until: str | None
     source_page: int | None
+    is_protocol: bool = Field(
+        description="False — это не похоже на постановление/предписание по ПДД РК вообще, дальше идти незачем"
+    )
     warnings: list[str] = Field(default_factory=list)
 
 
@@ -119,6 +122,9 @@ class MappedAppealFacts(BaseModel):
     article_code: str | None
     offense_description: str | None
     source_page: int | None
+    is_protocol: bool = Field(
+        description="False — это не похоже на постановление/предписание по ПДД РК вообще, дальше идти незачем"
+    )
     missing_fields: list[str] = Field(default_factory=list)
     warnings: list[str] = Field(default_factory=list)
 

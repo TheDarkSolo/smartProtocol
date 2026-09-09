@@ -147,6 +147,7 @@ async def extract_case_decree(case_id: str) -> ExtractedDecreeResponse:
         device_name=result.device_name,
         device_verified_until=result.device_verified_until,
         source_page=result.source_page,
+        is_protocol=result.is_protocol,
         warnings=result.warnings,
     )
 
@@ -174,6 +175,7 @@ async def case_facts(case_id: str) -> MappedAppealFacts:
         article_code=decree.article_code,
         offense_description=decree.offense_description,
         source_page=decree.source_page,
+        is_protocol=decree.is_protocol,
         missing_fields=missing,
         warnings=decree.warnings,
     )

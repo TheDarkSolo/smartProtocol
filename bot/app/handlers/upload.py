@@ -96,6 +96,13 @@ async def _handle_upload(
         await message.answer(t(lang, "backend_offline") if not exc.status_code else str(exc))
         return
 
+    if not facts.get("is_protocol"):
+        # Быстрый отказ здесь и есть экономия токенов: дальше по цепочке —
+        # уточняющие вопросы и вызов DeepSeek — для случайного PDF просто не
+        # запускаются. Разбор до этой точки — pdfplumber, локально, без LLM.
+        await message.answer(t(lang, "not_a_protocol"))
+        return
+
     missing_required = [field for field in REQUIRED_FACT_FIELDS if not facts.get(field)]
     if missing_required:
         await message.answer(t(lang, "extraction_incomplete", fields=", ".join(missing_required)))
