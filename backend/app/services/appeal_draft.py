@@ -54,6 +54,24 @@ def _grounds_by_id() -> dict[str, dict[str, Any]]:
     return {g["id"]: g for g in _load_yaml("grounds.yaml")}
 
 
+def find_ground_for_article(article_code: str | None) -> str | None:
+    """Какое основание (если есть) вообще применимо к этой статье.
+
+    Обязательная проверка перед тем, как вести пользователя по вопросам
+    конкретного основания: без неё бот повёл бы дело о превышении скорости
+    по сценарию жёлтого сигнала светофора просто потому, что оба документа
+    успешно распознаются как постановление. Основание должно подбираться
+    по факту статьи, а не подставляться безусловно."""
+    if not article_code:
+        return None
+    articles = _articles_by_id()
+    for ground in _load_yaml("grounds.yaml"):
+        for article_id in ground["applies_to_articles"]:
+            if articles[article_id]["code"] == article_code:
+                return ground["id"]
+    return None
+
+
 def _norm_sentence(article: dict[str, Any]) -> str:
     """Норма как цельное предложение: «Согласно <code>, <диспозиция>»."""
     disposition = article["disposition_ru"].strip()
@@ -184,7 +202,11 @@ async def draft_appeal(*, ground_id: str, facts: dict[str, Any]) -> AppealDraftR
     ]
 
     context = {
-        "authority_name": f"Департаменту полиции города {facts.get('authority_city', '')}",
+        # authority_city несёт не голое название города, а всю часть после
+        # "Департаменту полиции" — "города Астаны" или "Жамбылской области":
+        # полиция в РК организована и по городам, и по областям, и слово
+        # "города" сюда нельзя подставлять всегда (см. protocol_extractor.py).
+        "authority_name": f"Департаменту полиции {facts.get('authority_city', '')}",
         "applicant_name": facts.get("applicant_name", ""),
         "applicant_address": facts.get("applicant_address", ""),
         "applicant_phone": facts.get("applicant_phone", ""),

@@ -125,6 +125,10 @@ class MappedAppealFacts(BaseModel):
     is_protocol: bool = Field(
         description="False — это не похоже на постановление/предписание по ПДД РК вообще, дальше идти незачем"
     )
+    supported_ground: str | None = Field(
+        description="id основания из knowledge/grounds.yaml, применимого к этой статье, или null — "
+        "для этого состава ещё не реализован ни один сценарий вопросов"
+    )
     missing_fields: list[str] = Field(default_factory=list)
     warnings: list[str] = Field(default_factory=list)
 

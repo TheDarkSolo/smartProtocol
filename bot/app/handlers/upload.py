@@ -14,7 +14,7 @@ from aiogram.types import Message
 from .. import api_client
 from ..locales import t
 from ..user_state import get_lang
-from .appeal_flow import AppealStates, REQUIRED_FACT_FIELDS, ask_first_question
+from .appeal_flow import GROUND_ID, REQUIRED_FACT_FIELDS, ask_first_question
 
 router = Router(name="upload")
 
@@ -85,33 +85,34 @@ async def _handle_upload(
             await status_message.edit_text(t(lang, "backend_offline"))
         return
 
-    await status_message.edit_text(t(lang, "case_created", case_id=case.case_id))
-
+    # Пока нет однозначного успеха, промежуточный статус остаётся одним и тем
+    # же редактируемым сообщением — не заводим отдельное "дело создано",
+    # которое тут же обесценивается следующим сообщением об отказе.
     if content_type != "application/pdf":
         # Разбор без текстового слоя (vision-путь) на бэкенде ещё не готов —
         # честно говорим об этом, а не притворяемся, что фото тоже разбирается.
-        await message.answer(t(lang, "extraction_pdf_only"))
+        await status_message.edit_text(t(lang, "extraction_pdf_only"))
         return
 
     try:
         facts = await api_client.fetch_case_facts(case.case_id, user_id=user_id)
     except api_client.ApiError as exc:
-        await message.answer(t(lang, "backend_offline") if not exc.status_code else str(exc))
+        await status_message.edit_text(t(lang, "backend_offline") if not exc.status_code else str(exc))
         return
 
     if not facts.get("is_protocol"):
         # Быстрый отказ здесь и есть экономия токенов: дальше по цепочке —
         # уточняющие вопросы и вызов DeepSeek — для случайного PDF просто не
         # запускаются. Разбор до этой точки — pdfplumber, локально, без LLM.
-        await message.answer(t(lang, "not_a_protocol"))
+        await status_message.edit_text(t(lang, "not_a_protocol"))
         return
 
     missing_required = [field for field in REQUIRED_FACT_FIELDS if not facts.get(field)]
     if missing_required:
-        await message.answer(t(lang, "extraction_incomplete", fields=", ".join(missing_required)))
+        await status_message.edit_text(t(lang, "extraction_incomplete", fields=", ".join(missing_required)))
         return
 
-    await message.answer(
+    await status_message.edit_text(
         t(
             lang,
             "extracted_summary",
@@ -129,4 +130,12 @@ async def _handle_upload(
             applicant_iin=facts.get("applicant_iin") or "—",
         )
     )
+
+    if facts.get("supported_ground") != GROUND_ID:
+        # Документ разобран верно, но по этой статье ещё не реализовано ни
+        # одного сценария уточняющих вопросов — честно останавливаемся здесь,
+        # а не ведём человека по вопросам про светофор при превышении скорости.
+        await message.answer(t(lang, "ground_not_supported"))
+        return
+
     await ask_first_question(message, state, lang, case_id=case.case_id, base_facts=facts)

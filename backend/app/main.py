@@ -25,7 +25,7 @@ from .schemas import (
     ReviewRequest,
     ReviewResponse,
 )
-from .services.appeal_draft import UnknownGroundError, draft_appeal
+from .services.appeal_draft import UnknownGroundError, draft_appeal, find_ground_for_article
 from .services.protocol_extractor import decree_to_appeal_facts, extract_decree_from_pdf
 
 app = FastAPI(
@@ -193,6 +193,7 @@ async def case_facts(
         offense_description=decree.offense_description,
         source_page=decree.source_page,
         is_protocol=decree.is_protocol,
+        supported_ground=find_ground_for_article(decree.article_code),
         missing_fields=missing,
         warnings=decree.warnings,
     )

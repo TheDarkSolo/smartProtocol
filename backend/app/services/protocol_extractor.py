@@ -245,11 +245,20 @@ def decree_to_appeal_facts(decree: ExtractedDecree) -> dict:
     человек, а appeal_draft.py и так не примет их ни от кого, кроме него
     (см. anti-hallucination правило в .claude/agents/appeal-drafter.md).
     """
-    city = None
+    # Значение поля — не голое название города, а вся часть адресата после
+    # "Департаменту полиции" (см. appeal_draft.py). Полиция в РК организована
+    # и по городам ("...ГОРОДА АСТАНА"), и по областям ("...ЖАМБЫЛСКОЙ
+    # ОБЛАСТИ") — регулярка только под города once давала authority_city:
+    # None на любом областном департаменте и ломала адресата в шаблоне.
+    locality = None
     if decree.authority_name:
         city_match = re.search(r"ГОРОДА\s+(\S+)", decree.authority_name, re.IGNORECASE)
         if city_match:
-            city = city_match.group(1).capitalize()
+            locality = f"города {city_match.group(1).capitalize()}"
+        else:
+            oblast_match = re.search(r"(\S+)\s+ОБЛАСТИ", decree.authority_name, re.IGNORECASE)
+            if oblast_match:
+                locality = f"{oblast_match.group(1).capitalize()} области"
 
     phone = None
     if decree.owner_phone:
@@ -272,7 +281,7 @@ def decree_to_appeal_facts(decree: ExtractedDecree) -> dict:
         "applicant_address": decree.owner_address,
         "applicant_phone": phone,
         "applicant_iin": decree.owner_iin,
-        "authority_city": city,
+        "authority_city": locality,
         "decree_kind": decree.decree_kind.lower() if decree.decree_kind else None,
         "decree_number": decree.decree_number,
         "decree_date": decree.decree_date,
