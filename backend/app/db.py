@@ -32,6 +32,18 @@ def _connect() -> sqlite3.Connection:
         )
         """
     )
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS reviews (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            case_id TEXT,
+            user_id TEXT,
+            rating INTEGER NOT NULL,
+            comment TEXT,
+            created_at TEXT NOT NULL
+        )
+        """
+    )
     return conn
 
 
@@ -45,4 +57,12 @@ def log_event(event_type: str, *, case_id: str | None = None, user_id: str | Non
         conn.execute(
             "INSERT INTO events (event_type, case_id, user_id, source, created_at) VALUES (?, ?, ?, ?, ?)",
             (event_type, case_id, user_id, source, datetime.now(timezone.utc).isoformat()),
+        )
+
+
+def save_review(*, rating: int, case_id: str | None = None, user_id: str | None = None, comment: str | None = None) -> None:
+    with _connect() as conn:
+        conn.execute(
+            "INSERT INTO reviews (case_id, user_id, rating, comment, created_at) VALUES (?, ?, ?, ?, ?)",
+            (case_id, user_id, rating, comment, datetime.now(timezone.utc).isoformat()),
         )

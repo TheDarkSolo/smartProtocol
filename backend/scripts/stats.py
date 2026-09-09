@@ -63,6 +63,20 @@ def main() -> None:
     if first:
         print(f"\nПериод: {first} — {last}")
 
+    cur.execute("SELECT COUNT(*), AVG(rating) FROM reviews")
+    review_count, avg_rating = cur.fetchone()
+    print("\nОтзывы:")
+    if review_count:
+        print(f"  Всего: {review_count}, средняя оценка: {avg_rating:.1f}")
+        cur.execute(
+            "SELECT rating, comment, created_at FROM reviews ORDER BY created_at DESC LIMIT 10"
+        )
+        for rating, comment, created_at in cur.fetchall():
+            comment_part = f' — "{comment}"' if comment else ""
+            print(f"  [{created_at}] {rating}/5{comment_part}")
+    else:
+        print("  Пока нет.")
+
 
 if __name__ == "__main__":
     main()

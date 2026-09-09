@@ -138,3 +138,12 @@ class AppealDraftResponse(BaseModel):
     document_text: str
     llm_used: bool = Field(description="True, если изложение фактов сформировал DeepSeek, а не резервный пересказ")
     warnings: list[str] = Field(default_factory=list)
+
+
+class ReviewRequest(BaseModel):
+    rating: int = Field(ge=1, le=5)
+    comment: str | None = None
+
+
+class ReviewResponse(BaseModel):
+    ok: bool = True

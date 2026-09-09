@@ -22,6 +22,8 @@ from .schemas import (
     ExtractedDecreeResponse,
     MappedAppealFacts,
     PublicConfig,
+    ReviewRequest,
+    ReviewResponse,
 )
 from .services.appeal_draft import UnknownGroundError, draft_appeal
 from .services.protocol_extractor import decree_to_appeal_facts, extract_decree_from_pdf
@@ -221,3 +223,16 @@ async def draft_case_appeal(
         llm_used=result.llm_used,
         warnings=result.warnings,
     )
+
+
+@app.post("/api/cases/{case_id}/review", response_model=ReviewResponse)
+async def submit_review(
+    case_id: str,
+    body: ReviewRequest,
+    x_user_id: str | None = Header(default=None, alias="X-User-Id"),
+) -> ReviewResponse:
+    """Оценка результата пользователем. Не завязана на существование дела в
+    БД (её пока и нет) — случайный несуществующий case_id просто запишется
+    как есть, это не проблема на объёме одного бота на тестовой стадии."""
+    db.save_review(rating=body.rating, case_id=case_id, user_id=x_user_id, comment=body.comment)
+    return ReviewResponse()

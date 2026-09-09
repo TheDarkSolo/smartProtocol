@@ -17,9 +17,10 @@ from datetime import date
 from aiogram import F, Router
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
-from aiogram.types import Message
+from aiogram.types import CallbackQuery, Message
 
 from .. import api_client
+from ..keyboards import review_rating_keyboard, review_skip_keyboard
 from ..locales import t
 from ..user_state import get_lang
 
@@ -57,6 +58,8 @@ class AppealStates(StatesGroup):
     ask_distance = State()
     ask_braking = State()
     ask_continued = State()
+    ask_review_rating = State()
+    ask_review_comment = State()
 
 
 async def ask_first_question(message: Message, state: FSMContext, lang: str, *, case_id: str, base_facts: dict) -> None:
@@ -126,7 +129,55 @@ async def _finish(message: Message, state: FSMContext, lang: str) -> None:
     for chunk in _split_message(result["document_text"]):
         await message.answer(chunk)
 
+    # Дело сделано — дальше короткий опрос об оценке, не сбрасываем состояние
+    # сразу, а переводим в ожидание оценки. case_id ещё нужен для отзыва.
+    await state.set_data({"case_id": case_id})
+    await state.set_state(AppealStates.ask_review_rating)
+    await message.answer(t(lang, "review_prompt"), reply_markup=review_rating_keyboard)
+
+
+@router.callback_query(AppealStates.ask_review_rating, F.data.startswith("review:"))
+async def on_review_rating(callback: CallbackQuery, state: FSMContext) -> None:
+    lang = get_lang(callback.from_user.id)
+    rating = int(callback.data.split(":", 1)[1])
+    await state.update_data(review_rating=rating)
+    await state.set_state(AppealStates.ask_review_comment)
+    await callback.answer()
+    if callback.message is not None:
+        await callback.message.edit_reply_markup(reply_markup=None)
+        await callback.message.answer(
+            t(lang, "review_ask_comment"),
+            reply_markup=review_skip_keyboard(t(lang, "review_skip_button")),
+        )
+
+
+@router.message(AppealStates.ask_review_comment, F.text)
+async def on_review_comment(message: Message, state: FSMContext) -> None:
+    lang = get_lang(message.from_user.id)
+    await _submit_review(state, user_id=str(message.from_user.id), comment=message.text.strip())
+    await message.answer(t(lang, "review_thanks"))
     await state.clear()
+
+
+@router.callback_query(AppealStates.ask_review_comment, F.data == "review_skip")
+async def on_review_skip(callback: CallbackQuery, state: FSMContext) -> None:
+    lang = get_lang(callback.from_user.id)
+    await callback.answer()
+    if callback.message is not None:
+        await callback.message.edit_reply_markup(reply_markup=None)
+    await _submit_review(state, user_id=str(callback.from_user.id), comment=None)
+    if callback.message is not None:
+        await callback.message.answer(t(lang, "review_thanks"))
+    await state.clear()
+
+
+async def _submit_review(state: FSMContext, *, user_id: str, comment: str | None) -> None:
+    data = await state.get_data()
+    case_id = data.get("case_id")
+    rating = data.get("review_rating")
+    if rating is None or case_id is None:
+        return
+    await api_client.submit_review(case_id=case_id, rating=rating, comment=comment, user_id=user_id)
 
 
 def _split_message(text: str, limit: int = _TELEGRAM_MESSAGE_LIMIT) -> list[str]:

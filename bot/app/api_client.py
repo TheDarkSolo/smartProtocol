@@ -81,6 +81,21 @@ async def fetch_case_facts(case_id: str, *, user_id: str) -> dict:
     return response.json()
 
 
+async def submit_review(*, case_id: str, rating: int, comment: str | None, user_id: str) -> None:
+    body = {"rating": rating, "comment": comment}
+    try:
+        async with httpx.AsyncClient(timeout=15) as client:
+            response = await client.post(
+                f"{settings.api_base_url}/api/cases/{case_id}/review", json=body, headers=_headers(user_id)
+            )
+        response.raise_for_status()
+    except httpx.HTTPError:
+        # Отзыв — не критичный шаг сценария: если бэкенд недоступен именно
+        # в этот момент, не заставляем пользователя разбираться с ошибкой
+        # ради необязательной оценки. Просто не сохраняем.
+        pass
+
+
 async def draft_appeal(*, case_id: str, ground_id: str, facts: dict, user_id: str) -> dict:
     body = {"ground_id": ground_id, "facts": facts}
     try:

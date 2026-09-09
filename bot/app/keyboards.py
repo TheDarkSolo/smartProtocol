@@ -8,3 +8,15 @@ language_keyboard = InlineKeyboardMarkup(
         ]
     ]
 )
+
+review_rating_keyboard = InlineKeyboardMarkup(
+    inline_keyboard=[
+        [InlineKeyboardButton(text=str(n), callback_data=f"review:{n}") for n in range(1, 6)],
+    ]
+)
+
+
+def review_skip_keyboard(skip_label: str) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[[InlineKeyboardButton(text=skip_label, callback_data="review_skip")]]
+    )
