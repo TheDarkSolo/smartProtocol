@@ -1,0 +1,42 @@
+{#
+  Шаблон жалобы на постановление (протокол) по ПДД РК, русский язык.
+
+  Построен по архитектуре appeal-drafter: ссылки на нормы права подставляются
+  сюда из knowledge/articles.yaml, а не генерируются моделью. Единственное,
+  что пишет LLM — {{ narrative }}, и это только изложение фактов, сообщённых
+  пользователем, без единого номера статьи или пункта.
+
+  Основа — реальный пример пользователя (дело о жёлтом сигнале светофора),
+  обобщённый под произвольное основание и состав.
+#}
+{{ authority_name }}
+
+От: {{ applicant_name }}
+адрес: {{ applicant_address }}
+тел: {{ applicant_phone }}, ИИН {{ applicant_iin }}
+
+
+{{ document_title }}
+
+На {{ decree_kind }} № {{ decree_number }} от {{ decree_date }} г. о необходимости уплаты штрафа
+
+{{ offense_date }} по адресу {{ offense_location }} в отношении принадлежащего мне ТС {{ vehicle_make }}, г/н {{ vehicle_plate }}, вынесен{{ decree_kind_ending }} {{ decree_kind }} по {{ article_code }} ({{ offense_description }}).
+{% if observed_detail %}{{ observed_detail }}
+{% endif %}
+С {{ decree_kind_instrumental }} не согласен(на) по следующим основаниям:
+
+{% for norm in supporting_norms %}
+{{ norm }}
+{% endfor %}
+{{ narrative }}
+
+{% for norm in closing_norms %}
+{{ norm }}
+{% endfor %}
+
+На основании изложенного прошу:
+{% for request in requests %}
+{{ loop.index }}. {{ request }}
+{% endfor %}
+
+Дата: {{ signed_date }}                                          Подпись: {{ applicant_name }}
