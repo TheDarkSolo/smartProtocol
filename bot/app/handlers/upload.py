@@ -14,7 +14,7 @@ from aiogram.types import Message
 from .. import api_client
 from ..locales import t
 from ..user_state import get_lang
-from .appeal_flow import GROUND_ID, REQUIRED_FACT_FIELDS, ask_first_question
+from .appeal_flow import GROUND_ID, start_clarification
 
 router = Router(name="upload")
 
@@ -107,11 +107,6 @@ async def _handle_upload(
         await status_message.edit_text(t(lang, "not_a_protocol"))
         return
 
-    missing_required = [field for field in REQUIRED_FACT_FIELDS if not facts.get(field)]
-    if missing_required:
-        await status_message.edit_text(t(lang, "extraction_incomplete", fields=", ".join(missing_required)))
-        return
-
     await status_message.edit_text(
         t(
             lang,
@@ -138,4 +133,4 @@ async def _handle_upload(
         await message.answer(t(lang, "ground_not_supported"))
         return
 
-    await ask_first_question(message, state, lang, case_id=case.case_id, base_facts=facts)
+    await start_clarification(message, state, lang, case_id=case.case_id, base_facts=facts)

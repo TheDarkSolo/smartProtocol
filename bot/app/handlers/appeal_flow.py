@@ -21,7 +21,7 @@ from aiogram.types import CallbackQuery, Message
 
 from .. import api_client
 from ..keyboards import review_rating_keyboard, review_skip_keyboard
-from ..locales import t
+from ..locales import field_label, t
 from ..user_state import get_lang
 
 router = Router(name="appeal_flow")
@@ -55,6 +55,7 @@ _TELEGRAM_MESSAGE_LIMIT = 4000
 
 
 class AppealStates(StatesGroup):
+    ask_missing_field = State()
     ask_distance = State()
     ask_braking = State()
     ask_continued = State()
@@ -62,7 +63,49 @@ class AppealStates(StatesGroup):
     ask_review_comment = State()
 
 
-async def ask_first_question(message: Message, state: FSMContext, lang: str, *, case_id: str, base_facts: dict) -> None:
+async def start_clarification(message: Message, state: FSMContext, lang: str, *, case_id: str, base_facts: dict) -> None:
+    """Точка входа после успешного разбора документа.
+
+    Экстракция никогда не считается «либо всё, либо ничего»: то, что не
+    нашлось в PDF (сегодня — город органа, завтра — что-то ещё), не должно
+    останавливать сценарий. Недостающие поля из REQUIRED_FACT_FIELDS
+    просто спрашиваются текстом, одно за другим, прежде чем перейти к
+    вопросам по существу основания.
+    """
+    missing = [field for field in REQUIRED_FACT_FIELDS if not base_facts.get(field)]
+    if not missing:
+        await _ask_ground_questions(message, state, lang, case_id=case_id, base_facts=base_facts)
+        return
+
+    await state.update_data(case_id=case_id, base_facts=dict(base_facts), missing_queue=missing)
+    await state.set_state(AppealStates.ask_missing_field)
+    await message.answer(t(lang, "ask_missing_field", label=field_label(lang, missing[0])))
+
+
+@router.message(AppealStates.ask_missing_field, F.text)
+async def on_missing_field_answer(message: Message, state: FSMContext) -> None:
+    lang = get_lang(message.from_user.id)
+    data = await state.get_data()
+    queue = data.get("missing_queue") or []
+    if not queue:
+        # Не должно происходить в норме — защитная ветка от рассинхронизации.
+        await state.clear()
+        return
+
+    field = queue[0]
+    base_facts = data["base_facts"]
+    base_facts[field] = message.text.strip()
+    remaining = queue[1:]
+    await state.update_data(base_facts=base_facts, missing_queue=remaining)
+
+    if remaining:
+        await message.answer(t(lang, "ask_missing_field", label=field_label(lang, remaining[0])))
+        return
+
+    await _ask_ground_questions(message, state, lang, case_id=data["case_id"], base_facts=base_facts)
+
+
+async def _ask_ground_questions(message: Message, state: FSMContext, lang: str, *, case_id: str, base_facts: dict) -> None:
     await state.update_data(case_id=case_id, base_facts=base_facts, answers={})
     await state.set_state(AppealStates.ask_distance)
     await message.answer(t(lang, "ground_intro"))
