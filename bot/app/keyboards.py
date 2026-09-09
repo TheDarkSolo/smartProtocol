@@ -22,13 +22,10 @@ def review_skip_keyboard(skip_label: str) -> InlineKeyboardMarkup:
     )
 
 
-def universal_gate_keyboard(yes_label: str, no_label: str) -> InlineKeyboardMarkup:
-    """Общая клавиатура «да/нет» для любого универсального основания в
-    очереди (см. UNIVERSAL_GROUNDS в appeal_flow.py) — один виджет на все,
-    а не отдельная клавиатура под каждое."""
-    return InlineKeyboardMarkup(
-        inline_keyboard=[
-            [InlineKeyboardButton(text=yes_label, callback_data="universal:yes")],
-            [InlineKeyboardButton(text=no_label, callback_data="universal:no")],
-        ]
-    )
+def ground_menu_keyboard(buttons: list[tuple[str, str]], none_label: str) -> InlineKeyboardMarkup:
+    """Меню оснований одним сообщением — человек сам выбирает, что похоже на
+    его ситуацию (см. UNIVERSAL_GROUNDS в appeal_flow.py), вместо вопросов
+    «да/нет» по одному на каждое. buttons — пары (подпись, id основания)."""
+    rows = [[InlineKeyboardButton(text=label, callback_data=f"ground_choice:{ground_id}")] for label, ground_id in buttons]
+    rows.append([InlineKeyboardButton(text=none_label, callback_data="ground_choice:none")])
+    return InlineKeyboardMarkup(inline_keyboard=rows)

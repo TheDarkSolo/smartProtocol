@@ -11,11 +11,13 @@
   и малозначительность как последний рубеж ("insignificance" — единственное
   из четырёх, что признаёт факт нарушения, а не отрицает его).
 
-Когда для статьи нет специфичного основания, бот не отказывает сразу, а
-проходит по очереди универсальных оснований (UNIVERSAL_GROUNDS ниже) — по
-одному вопросу «да/нет» на каждое — и останавливается, только если не
-подошло ни одно. Это и есть механизм, которым бот способен предложить
-законное обжалование по любому составу, а не выдумывает норму под состав.
+Когда для статьи нет специфичного основания, бот сразу показывает меню всех
+универсальных оснований (UNIVERSAL_GROUNDS ниже) одним сообщением — человек
+сам выбирает, что из перечисленного похоже на его ситуацию, а не отвечает
+на них по одному "да/нет". Это и есть механизм, которым бот способен
+предложить законное обжалование по любому составу, не выдумывая норму под
+состав: предлагаются только основания, которые реально есть в законе и
+подтверждены (см. knowledge/articles.yaml).
 
 Полного rule engine с подбором среди множества оснований по-прежнему нет
 (появится на этапе 1 в ROADMAP.md) — набор вопросов на каждое основание
@@ -33,7 +35,7 @@ from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import CallbackQuery, Message
 
 from .. import api_client
-from ..keyboards import review_rating_keyboard, review_skip_keyboard, universal_gate_keyboard
+from ..keyboards import ground_menu_keyboard, review_rating_keyboard, review_skip_keyboard
 from ..locales import field_label, t
 from ..user_state import get_lang
 
@@ -47,7 +49,7 @@ GROUND_ID = "yellow_signal_no_safe_stop"
 UNIVERSAL_GROUNDS: list[dict] = [
     {
         "id": "not_the_driver",
-        "gate_key": "gate_not_driver",
+        "button_key": "ground_button_not_driver",
         "intro_key": "not_driver_intro",
         "questions": [
             ("who_was_actually_using_vehicle", "ask_universal_who"),
@@ -56,7 +58,7 @@ UNIVERSAL_GROUNDS: list[dict] = [
     },
     {
         "id": "extreme_necessity",
-        "gate_key": "gate_necessity",
+        "button_key": "ground_button_necessity",
         "intro_key": "necessity_intro",
         "questions": [
             ("danger_description", "ask_necessity_danger"),
@@ -65,7 +67,7 @@ UNIVERSAL_GROUNDS: list[dict] = [
     },
     {
         "id": "insignificance",
-        "gate_key": "gate_insignificance",
+        "button_key": "ground_button_insignificance",
         "intro_key": "insignificance_intro",
         "questions": [
             ("why_insignificant", "ask_insignificance_why"),
@@ -106,7 +108,7 @@ _TELEGRAM_MESSAGE_LIMIT = 4000
 
 class AppealStates(StatesGroup):
     ask_missing_field = State()
-    ask_universal_gate = State()
+    ask_ground_choice = State()
     ask_universal_q1 = State()
     ask_universal_q2 = State()
     ask_distance = State()
@@ -173,50 +175,34 @@ async def _route_after_required_fields(
         await _ask_ground_questions(message, state, lang, case_id=case_id, base_facts=base_facts)
         return
 
-    queue = [g["id"] for g in UNIVERSAL_GROUNDS]
-    await state.update_data(case_id=case_id, base_facts=base_facts, universal_queue=queue)
-    await _offer_next_universal(message, state, lang)
+    await state.update_data(case_id=case_id, base_facts=base_facts)
+    await state.set_state(AppealStates.ask_ground_choice)
+    buttons = [(t(lang, g["button_key"]), g["id"]) for g in UNIVERSAL_GROUNDS]
+    await message.answer(t(lang, "choose_ground_menu"), reply_markup=ground_menu_keyboard(buttons, t(lang, "ground_choice_none")))
 
 
-async def _offer_next_universal(message: Message, state: FSMContext, lang: str) -> None:
-    data = await state.get_data()
-    queue = data.get("universal_queue") or []
-    if not queue:
-        await message.answer(t(lang, "ground_not_supported"))
-        await state.clear()
+@router.callback_query(AppealStates.ask_ground_choice, F.data == "ground_choice:none")
+async def on_ground_choice_none(callback: CallbackQuery, state: FSMContext) -> None:
+    lang = get_lang(callback.from_user.id)
+    await callback.answer()
+    if callback.message is not None:
+        await callback.message.edit_reply_markup(reply_markup=None)
+        await callback.message.answer(t(lang, "ground_not_supported"))
+    await state.clear()
+
+
+@router.callback_query(AppealStates.ask_ground_choice, F.data.startswith("ground_choice:"))
+async def on_ground_choice(callback: CallbackQuery, state: FSMContext) -> None:
+    lang = get_lang(callback.from_user.id)
+    ground_id = callback.data.split(":", 1)[1]
+    ground_def = _UNIVERSAL_BY_ID.get(ground_id)
+    await callback.answer()
+    if callback.message is not None:
+        await callback.message.edit_reply_markup(reply_markup=None)
+    if ground_def is None:
         return
 
-    ground_def = _UNIVERSAL_BY_ID[queue[0]]
-    await state.update_data(active_universal=queue[0])
-    await state.set_state(AppealStates.ask_universal_gate)
-    await message.answer(
-        t(lang, ground_def["gate_key"]),
-        reply_markup=universal_gate_keyboard(t(lang, "universal_yes_button"), t(lang, "universal_no_button")),
-    )
-
-
-@router.callback_query(AppealStates.ask_universal_gate, F.data == "universal:no")
-async def on_universal_gate_no(callback: CallbackQuery, state: FSMContext) -> None:
-    lang = get_lang(callback.from_user.id)
-    await callback.answer()
-    if callback.message is not None:
-        await callback.message.edit_reply_markup(reply_markup=None)
-    data = await state.get_data()
-    await state.update_data(universal_queue=(data.get("universal_queue") or [])[1:])
-    if callback.message is not None:
-        await _offer_next_universal(callback.message, state, lang)
-
-
-@router.callback_query(AppealStates.ask_universal_gate, F.data == "universal:yes")
-async def on_universal_gate_yes(callback: CallbackQuery, state: FSMContext) -> None:
-    lang = get_lang(callback.from_user.id)
-    await callback.answer()
-    if callback.message is not None:
-        await callback.message.edit_reply_markup(reply_markup=None)
-
-    data = await state.get_data()
-    ground_def = _UNIVERSAL_BY_ID[data["active_universal"]]
-    await state.update_data(answers={})
+    await state.update_data(active_universal=ground_id, answers={})
     await state.set_state(AppealStates.ask_universal_q1)
     if callback.message is not None:
         await callback.message.answer(t(lang, ground_def["intro_key"]))
