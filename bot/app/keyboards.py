@@ -22,10 +22,13 @@ def review_skip_keyboard(skip_label: str) -> InlineKeyboardMarkup:
     )
 
 
-def driver_choice_keyboard(me_label: str, other_label: str) -> InlineKeyboardMarkup:
+def universal_gate_keyboard(yes_label: str, no_label: str) -> InlineKeyboardMarkup:
+    """Общая клавиатура «да/нет» для любого универсального основания в
+    очереди (см. UNIVERSAL_GROUNDS в appeal_flow.py) — один виджет на все,
+    а не отдельная клавиатура под каждое."""
     return InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(text=me_label, callback_data="driver:me")],
-            [InlineKeyboardButton(text=other_label, callback_data="driver:other")],
+            [InlineKeyboardButton(text=yes_label, callback_data="universal:yes")],
+            [InlineKeyboardButton(text=no_label, callback_data="universal:no")],
         ]
     )

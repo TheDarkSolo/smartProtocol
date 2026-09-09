@@ -100,6 +100,16 @@ def _decree_kind_instrumental(decree_kind: str) -> str:
     return stripped + "ом"
 
 
+def _decree_kind_dative(decree_kind: str) -> str:
+    """Дательный падеж для «по ...» (например, «освободить от ответственности
+    по постановлению»). Та же эвристика, что и у творительного падежа —
+    достаточно для короткого списка реальных названий документа."""
+    stripped = decree_kind.strip()
+    if stripped.lower().endswith("е"):
+        return stripped[:-1] + "ю"
+    return stripped + "у"
+
+
 def _lowercase_first(text: str) -> str:
     text = text.strip().rstrip(".")
     return text[:1].lower() + text[1:] if text else text
@@ -122,6 +132,11 @@ NARRATIVE_SYSTEM_PROMPT = """\
 4. Не делай выводов о виновности или невиновности — только описание обстоятельств.
 5. Пиши от первого лица в прошедшем времени, 1-4 предложения, без канцелярских
    штампов сверх необходимого и без эмоциональной окраски.
+6. Никогда не указывай дату, время, место, номера или другие конкретные
+   значения, которых нет во входных фактах, — даже правдоподобные и даже
+   если кажется, что без них предложение звучит незавершённым. Дата и время
+   нарушения уже указаны в документе отдельно, до этого текста, — не
+   повторяй их здесь своими словами и тем более не подставляй другие.
 
 Раздел «Отсутствующие факты» перечисляет темы, по которым данных нет: если тема
 там — ты не просто пропускаешь формулировку, а не даёшь никакого намёка на неё,
@@ -198,9 +213,23 @@ async def draft_appeal(*, ground_id: str, facts: dict[str, Any]) -> AppealDraftR
         narrative = _fallback_narrative(raw_facts)
 
     decree_kind = str(facts.get("decree_kind", "постановление"))
+
+    # Основания различаются по позиции, а не только по норме. "Не согласен
+    # по следующим основаниям" естественно для отрицающих вину оснований
+    # (не тот водитель, крайняя необходимость — "это вообще не правонарушение"),
+    # но противоречиво для малозначительности: она признаёт факт нарушения и
+    # просит снисхождения, а не оспаривает его. Один и тот же зачин на оба
+    # случая — ровно то внутреннее противоречие, которое обязан ловить
+    # compliance-reviewer (см. .claude/agents/compliance-reviewer.md).
+    if ground.get("posture") == "mitigate":
+        intro_line = "Не оспаривая факт совершения правонарушения, прошу учесть следующие обстоятельства:"
+    else:
+        intro_line = f"С {_decree_kind_instrumental(decree_kind)} не согласен(на) по следующим основаниям:"
+
     requests = [
         template.format(
             decree_kind=decree_kind,
+            decree_kind_dative=_decree_kind_dative(decree_kind),
             decree_number=facts.get("decree_number", ""),
             decree_date=facts.get("decree_date", ""),
         )
@@ -221,6 +250,7 @@ async def draft_appeal(*, ground_id: str, facts: dict[str, Any]) -> AppealDraftR
         "decree_kind": decree_kind,
         "decree_kind_ending": _decree_kind_ending(decree_kind),
         "decree_kind_instrumental": _decree_kind_instrumental(decree_kind),
+        "intro_line": intro_line,
         "decree_number": facts.get("decree_number", ""),
         "decree_date": facts.get("decree_date", ""),
         "offense_date": facts.get("offense_date", ""),

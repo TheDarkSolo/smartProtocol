@@ -23,7 +23,7 @@
 {{ offense_date }} по адресу {{ offense_location }} в отношении принадлежащего мне ТС {{ vehicle_make }}, г/н {{ vehicle_plate }}, вынесен{{ decree_kind_ending }} {{ decree_kind }} по {{ article_code }} ({{ offense_description }}).
 {% if observed_detail %}{{ observed_detail }}
 {% endif %}
-С {{ decree_kind_instrumental }} не согласен(на) по следующим основаниям:
+{{ intro_line }}
 
 {% for norm in supporting_norms %}
 {{ norm }}
