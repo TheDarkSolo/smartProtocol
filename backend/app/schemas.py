@@ -62,13 +62,25 @@ class AppealFacts(BaseModel):
     vehicle_plate: str
     observed_detail: str | None = None
 
+    # Что реально написано в постановлении — не зависит от выбранного
+    # основания. Универсальное основание (например, "управлял не
+    # собственник") применимо к любой статье, и в тексте документа должно
+    # быть указано именно вменяемое нарушение, а не статья, под которую
+    # заточено основание (см. appeal_draft.py).
+    article_code: str
+    offense_description: str | None = None
+
     signed_date: str
 
     # Факты под основание "yellow_signal_no_safe_stop" — см. knowledge/grounds.yaml.
-    # Для другого ground_id набор обязательных фактов будет другим.
     distance_to_stop_line_at_signal_change: str | None = None
     braking_would_be_unsafe: str | None = None
     continued_through_intersection: str | None = None
+
+    # Факты под универсальное основание "not_the_driver" — применимо к любой
+    # статье, а не только к перечисленным в knowledge/grounds.yaml.
+    who_was_actually_using_vehicle: str | None = None
+    how_vehicle_left_possession: str | None = None
 
 
 class ExtractedDecreeResponse(BaseModel):

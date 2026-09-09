@@ -20,3 +20,12 @@ def review_skip_keyboard(skip_label: str) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[[InlineKeyboardButton(text=skip_label, callback_data="review_skip")]]
     )
+
+
+def driver_choice_keyboard(me_label: str, other_label: str) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text=me_label, callback_data="driver:me")],
+            [InlineKeyboardButton(text=other_label, callback_data="driver:other")],
+        ]
+    )

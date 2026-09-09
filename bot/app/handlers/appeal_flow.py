@@ -1,15 +1,21 @@
 """Уточняющие вопросы и сборка черновика жалобы после разбора документа.
 
-Единственное основание, для которого это здесь реализовано, —
-"yellow_signal_no_safe_stop" (см. knowledge/grounds.yaml): жёлтый сигнал
-светофора при невозможности безопасно остановиться. Три вопроса ниже —
-ровно required_facts этого основания. Другое основание потребует другого
-набора вопросов; это по-прежнему не общий движок подбора оснований (он
-появится вместе с rule engine на этапе 1 в ROADMAP.md).
+Два основания реализованы сейчас (knowledge/grounds.yaml):
+- "yellow_signal_no_safe_stop" — жёлтый сигнал светофора при невозможности
+  безопасно остановиться. Привязано к конкретной статье (ч.1 ст. 599 КоАП).
+- "not_the_driver" — универсальное: применимо к ЛЮБОМУ автоматически
+  зафиксированному нарушению независимо от статьи, потому что вопрос "кто
+  на самом деле управлял машиной" не зависит от того, за что оштрафовали.
+  Это и есть механизм, которым бот не отказывает по любому составу, для
+  которого нет специфичного основания, — сначала предлагается универсальная
+  проверка, и только если она тоже не подходит, бот честно останавливается.
 
-Ключевое: эти факты нельзя ничем заменить или угадать — только сам человек
-знает, был ли он близко к стоп-линии и почему торможение было небезопасно.
-Пропуск вопроса — это дыра в жалобе, а не мелочь.
+Полного rule engine с подбором среди множества оснований по-прежнему нет
+(появится на этапе 1 в ROADMAP.md) — набор вопросов на каждое основание
+описан здесь явно, а не выводится динамически.
+
+Ключевое правило не меняется: факты нельзя угадывать или подставлять за
+пользователя. Пропуск вопроса — это дыра в жалобе, а не мелочь.
 """
 
 from datetime import date
@@ -20,13 +26,14 @@ from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import CallbackQuery, Message
 
 from .. import api_client
-from ..keyboards import review_rating_keyboard, review_skip_keyboard
+from ..keyboards import driver_choice_keyboard, review_rating_keyboard, review_skip_keyboard
 from ..locales import field_label, t
 from ..user_state import get_lang
 
 router = Router(name="appeal_flow")
 
 GROUND_ID = "yellow_signal_no_safe_stop"
+UNIVERSAL_GROUND_ID = "not_the_driver"
 
 REQUIRED_FACT_FIELDS = [
     "applicant_name",
@@ -42,11 +49,20 @@ REQUIRED_FACT_FIELDS = [
     "vehicle_plate",
 ]
 
+# Всегда переносятся из разбора документа как есть — это вменяемое нарушение
+# по факту, а не выбор основания (см. appeal_draft.py).
+CASE_DESCRIPTION_FIELDS = ["article_code", "offense_description"]
+
 # Порядок здесь и порядок вопросов в состояниях должны совпадать построчно.
 _QUESTIONS = [
     ("distance_to_stop_line_at_signal_change", "ask_distance"),
     ("braking_would_be_unsafe", "ask_braking"),
     ("continued_through_intersection", "ask_continued"),
+]
+
+_UNIVERSAL_QUESTIONS = [
+    ("who_was_actually_using_vehicle", "ask_universal_who"),
+    ("how_vehicle_left_possession", "ask_universal_basis"),
 ]
 
 # Телеграм режет сообщение на границе 4096 символов — режем сами по абзацам,
@@ -56,6 +72,9 @@ _TELEGRAM_MESSAGE_LIMIT = 4000
 
 class AppealStates(StatesGroup):
     ask_missing_field = State()
+    ask_not_driver = State()
+    ask_universal_who = State()
+    ask_universal_basis = State()
     ask_distance = State()
     ask_braking = State()
     ask_continued = State()
@@ -74,7 +93,7 @@ async def start_clarification(message: Message, state: FSMContext, lang: str, *,
     """
     missing = [field for field in REQUIRED_FACT_FIELDS if not base_facts.get(field)]
     if not missing:
-        await _ask_ground_questions(message, state, lang, case_id=case_id, base_facts=base_facts)
+        await _route_after_required_fields(message, state, lang, case_id=case_id, base_facts=base_facts)
         return
 
     await state.update_data(case_id=case_id, base_facts=dict(base_facts), missing_queue=missing)
@@ -102,7 +121,67 @@ async def on_missing_field_answer(message: Message, state: FSMContext) -> None:
         await message.answer(t(lang, "ask_missing_field", label=field_label(lang, remaining[0])))
         return
 
-    await _ask_ground_questions(message, state, lang, case_id=data["case_id"], base_facts=base_facts)
+    await _route_after_required_fields(message, state, lang, case_id=data["case_id"], base_facts=base_facts)
+
+
+async def _route_after_required_fields(
+    message: Message, state: FSMContext, lang: str, *, case_id: str, base_facts: dict
+) -> None:
+    """Все обязательные поля собраны — решаем, по какому основанию вести дальше.
+
+    Специфичное основание (сейчас — жёлтый сигнал) в приоритете, если статья
+    совпадает: у него больше required_facts, значит и более сильный,
+    предметный черновик. Если специфичного основания для этой статьи нет —
+    предлагаем универсальную проверку "управлял ли пользователь сам", а не
+    сразу отказываем. Отказ — только если не подходит вообще ничего.
+    """
+    if base_facts.get("supported_ground") == GROUND_ID:
+        await _ask_ground_questions(message, state, lang, case_id=case_id, base_facts=base_facts)
+        return
+
+    await state.update_data(case_id=case_id, base_facts=base_facts)
+    await state.set_state(AppealStates.ask_not_driver)
+    await message.answer(
+        t(lang, "ask_not_driver"),
+        reply_markup=driver_choice_keyboard(t(lang, "driver_me_button"), t(lang, "driver_other_button")),
+    )
+
+
+@router.callback_query(AppealStates.ask_not_driver, F.data == "driver:me")
+async def on_driver_me(callback: CallbackQuery, state: FSMContext) -> None:
+    lang = get_lang(callback.from_user.id)
+    await callback.answer()
+    if callback.message is not None:
+        await callback.message.edit_reply_markup(reply_markup=None)
+        await callback.message.answer(t(lang, "ground_not_supported"))
+    await state.clear()
+
+
+@router.callback_query(AppealStates.ask_not_driver, F.data == "driver:other")
+async def on_driver_other(callback: CallbackQuery, state: FSMContext) -> None:
+    lang = get_lang(callback.from_user.id)
+    await callback.answer()
+    if callback.message is not None:
+        await callback.message.edit_reply_markup(reply_markup=None)
+    await state.update_data(answers={})
+    await state.set_state(AppealStates.ask_universal_who)
+    if callback.message is not None:
+        await callback.message.answer(t(lang, "universal_ground_intro"))
+        await callback.message.answer(t(lang, "ask_universal_who"))
+
+
+@router.message(AppealStates.ask_universal_who, F.text)
+async def on_universal_who_answer(message: Message, state: FSMContext) -> None:
+    await _store_answer_and_ask_next(
+        message, state, field="who_was_actually_using_vehicle", questions=_UNIVERSAL_QUESTIONS, ground_id=UNIVERSAL_GROUND_ID
+    )
+
+
+@router.message(AppealStates.ask_universal_basis, F.text)
+async def on_universal_basis_answer(message: Message, state: FSMContext) -> None:
+    await _store_answer_and_ask_next(
+        message, state, field="how_vehicle_left_possession", questions=_UNIVERSAL_QUESTIONS, ground_id=UNIVERSAL_GROUND_ID
+    )
 
 
 async def _ask_ground_questions(message: Message, state: FSMContext, lang: str, *, case_id: str, base_facts: dict) -> None:
@@ -114,37 +193,45 @@ async def _ask_ground_questions(message: Message, state: FSMContext, lang: str, 
 
 @router.message(AppealStates.ask_distance, F.text)
 async def on_distance_answer(message: Message, state: FSMContext) -> None:
-    await _store_answer_and_ask_next(message, state, field="distance_to_stop_line_at_signal_change")
+    await _store_answer_and_ask_next(
+        message, state, field="distance_to_stop_line_at_signal_change", questions=_QUESTIONS, ground_id=GROUND_ID
+    )
 
 
 @router.message(AppealStates.ask_braking, F.text)
 async def on_braking_answer(message: Message, state: FSMContext) -> None:
-    await _store_answer_and_ask_next(message, state, field="braking_would_be_unsafe")
+    await _store_answer_and_ask_next(
+        message, state, field="braking_would_be_unsafe", questions=_QUESTIONS, ground_id=GROUND_ID
+    )
 
 
 @router.message(AppealStates.ask_continued, F.text)
 async def on_continued_answer(message: Message, state: FSMContext) -> None:
-    await _store_answer_and_ask_next(message, state, field="continued_through_intersection")
+    await _store_answer_and_ask_next(
+        message, state, field="continued_through_intersection", questions=_QUESTIONS, ground_id=GROUND_ID
+    )
 
 
-async def _store_answer_and_ask_next(message: Message, state: FSMContext, *, field: str) -> None:
+async def _store_answer_and_ask_next(
+    message: Message, state: FSMContext, *, field: str, questions: list[tuple[str, str]], ground_id: str
+) -> None:
     lang = get_lang(message.from_user.id)
     data = await state.get_data()
     answers = data.get("answers", {})
     answers[field] = message.text.strip()
     await state.update_data(answers=answers)
 
-    current_index = next(i for i, (f, _) in enumerate(_QUESTIONS) if f == field)
-    if current_index + 1 < len(_QUESTIONS):
-        _, next_state_name = _QUESTIONS[current_index + 1]
+    current_index = next(i for i, (f, _) in enumerate(questions) if f == field)
+    if current_index + 1 < len(questions):
+        _, next_state_name = questions[current_index + 1]
         await state.set_state(getattr(AppealStates, next_state_name))
         await message.answer(t(lang, next_state_name))
         return
 
-    await _finish(message, state, lang)
+    await _finish(message, state, lang, ground_id=ground_id)
 
 
-async def _finish(message: Message, state: FSMContext, lang: str) -> None:
+async def _finish(message: Message, state: FSMContext, lang: str, *, ground_id: str) -> None:
     data = await state.get_data()
     case_id = data["case_id"]
     base_facts = data["base_facts"]
@@ -154,6 +241,7 @@ async def _finish(message: Message, state: FSMContext, lang: str) -> None:
 
     facts = {
         **{key: base_facts.get(key) for key in REQUIRED_FACT_FIELDS},
+        **{key: base_facts.get(key) for key in CASE_DESCRIPTION_FIELDS},
         "decree_kind": base_facts.get("decree_kind") or "постановление",
         "signed_date": date.today().strftime("%d.%m.%Y"),
         **answers,
@@ -161,7 +249,7 @@ async def _finish(message: Message, state: FSMContext, lang: str) -> None:
 
     try:
         result = await api_client.draft_appeal(
-            case_id=case_id, ground_id=GROUND_ID, facts=facts, user_id=str(message.from_user.id)
+            case_id=case_id, ground_id=ground_id, facts=facts, user_id=str(message.from_user.id)
         )
     except api_client.ApiError as exc:
         await status_message.edit_text(t(lang, "draft_failed", error=str(exc)))

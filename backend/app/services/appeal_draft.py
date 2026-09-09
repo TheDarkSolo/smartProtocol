@@ -72,6 +72,14 @@ def find_ground_for_article(article_code: str | None) -> str | None:
     return None
 
 
+def find_universal_grounds() -> list[str]:
+    """Основания, применимые к любому автоматически зафиксированному
+    нарушению независимо от статьи (например, «управлял не собственник»,
+    knowledge/grounds.yaml: universal: true). Их пустой applies_to_articles —
+    не недоработка, а то, что они по определению не привязаны к статье."""
+    return [g["id"] for g in _load_yaml("grounds.yaml") if g.get("universal")]
+
+
 def _norm_sentence(article: dict[str, Any]) -> str:
     """Норма как цельное предложение: «Согласно <code>, <диспозиция>»."""
     disposition = article["disposition_ru"].strip()
@@ -172,8 +180,6 @@ async def draft_appeal(*, ground_id: str, facts: dict[str, Any]) -> AppealDraftR
                 "(kz-legal-researcher ещё не прогонялся) — не выдавать пользователю без проверки."
             )
 
-    main_article = articles[ground["applies_to_articles"][0]]
-
     raw_fact_keys = ground["required_facts"]
     raw_facts = {key: str(facts.get(key, "")).strip() for key in raw_fact_keys}
     missing = [key for key, value in raw_facts.items() if not value]
@@ -221,8 +227,13 @@ async def draft_appeal(*, ground_id: str, facts: dict[str, Any]) -> AppealDraftR
         "offense_location": facts.get("offense_location", ""),
         "vehicle_make": facts.get("vehicle_make", ""),
         "vehicle_plate": facts.get("vehicle_plate", ""),
-        "article_code": main_article["code"],
-        "offense_description": _lowercase_first(main_article["disposition_ru"]),
+        # Не из знаний основания (ground), а из самого дела: универсальное
+        # основание (например, "управлял не собственник") применимо к любой
+        # статье, а в тексте документа должно быть указано именно то, что
+        # реально написано в постановлении — что человеку вменяется на самом
+        # деле, а не то, под какую статью "заточено" выбранное основание.
+        "article_code": facts.get("article_code", ""),
+        "offense_description": _lowercase_first(str(facts.get("offense_description") or "")),
         "observed_detail": facts.get("observed_detail"),
         "supporting_norms": [_norm_sentence(articles[a]) for a in ground["supporting_norms"]],
         "narrative": narrative,
