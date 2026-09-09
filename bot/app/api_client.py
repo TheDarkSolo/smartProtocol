@@ -52,3 +52,33 @@ async def create_case(*, filename: str, content_type: str, payload: bytes) -> Ca
 
     data = response.json()
     return CaseCreated(case_id=data["case_id"], status=data["status"])
+
+
+async def fetch_case_facts(case_id: str) -> dict:
+    """Разбор PDF + перенос объективных полей в форму жалобы, одним запросом."""
+    try:
+        async with httpx.AsyncClient(timeout=30) as client:
+            response = await client.post(f"{settings.api_base_url}/api/cases/{case_id}/facts")
+    except httpx.HTTPError as exc:
+        raise ApiError(f"Бэкенд недоступен: {exc}") from exc
+
+    if response.status_code >= 400:
+        detail = response.json().get("detail", "Не удалось разобрать документ.")
+        raise ApiError(detail, status_code=response.status_code)
+
+    return response.json()
+
+
+async def draft_appeal(*, case_id: str, ground_id: str, facts: dict) -> dict:
+    body = {"ground_id": ground_id, "facts": facts}
+    try:
+        async with httpx.AsyncClient(timeout=60) as client:
+            response = await client.post(f"{settings.api_base_url}/api/cases/{case_id}/draft", json=body)
+    except httpx.HTTPError as exc:
+        raise ApiError(f"Бэкенд недоступен: {exc}") from exc
+
+    if response.status_code >= 400:
+        detail = response.json().get("detail", "Не удалось собрать черновик.")
+        raise ApiError(detail, status_code=response.status_code)
+
+    return response.json()

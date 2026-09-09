@@ -224,6 +224,52 @@ def parse_decree_page(page) -> ExtractedDecree:
     return result
 
 
+def decree_to_appeal_facts(decree: ExtractedDecree) -> dict:
+    """Переносит то, что реально есть в постановлении, в поля жалобы.
+
+    Только объективные данные документа. Обстоятельства защиты (почему манёвр
+    был безопасен и т.п.) сюда не попадают в принципе — их знает только сам
+    человек, а appeal_draft.py и так не примет их ни от кого, кроме него
+    (см. anti-hallucination правило в .claude/agents/appeal-drafter.md).
+    """
+    city = None
+    if decree.authority_name:
+        city_match = re.search(r"ГОРОДА\s+(\S+)", decree.authority_name, re.IGNORECASE)
+        if city_match:
+            city = city_match.group(1).capitalize()
+
+    phone = None
+    if decree.owner_phone:
+        digits = decree.owner_phone
+        if len(digits) == 11 and digits.startswith("7"):
+            phone = f"+7 {digits[1:4]} {digits[4:7]} {digits[7:9]} {digits[9:11]}"
+        else:
+            phone = digits
+
+    offense_date = decree.offense_datetime.split()[0] if decree.offense_datetime else None
+
+    # "Направление: Юг, от просп. ... в сторону ул. ..." — служебная метаданные
+    # камеры фиксации, не часть места нарушения в смысле процессуального документа.
+    offense_location = decree.offense_location
+    if offense_location:
+        offense_location = re.split(r"\.\s*Направление:", offense_location)[0].strip()
+
+    return {
+        "applicant_name": decree.owner_name,
+        "applicant_address": decree.owner_address,
+        "applicant_phone": phone,
+        "applicant_iin": decree.owner_iin,
+        "authority_city": city,
+        "decree_kind": decree.decree_kind.lower() if decree.decree_kind else None,
+        "decree_number": decree.decree_number,
+        "decree_date": decree.decree_date,
+        "offense_date": offense_date,
+        "offense_location": offense_location,
+        "vehicle_make": decree.vehicle_make,
+        "vehicle_plate": decree.vehicle_plate,
+    }
+
+
 def extract_decree_from_pdf(pdf_bytes: bytes) -> ExtractedDecree:
     with pdfplumber.open(io.BytesIO(pdf_bytes)) as pdf:
         pages_text = [p.extract_text() or "" for p in pdf.pages]

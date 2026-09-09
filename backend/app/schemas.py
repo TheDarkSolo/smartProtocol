@@ -98,6 +98,31 @@ class ExtractedDecreeResponse(BaseModel):
     warnings: list[str] = Field(default_factory=list)
 
 
+class MappedAppealFacts(BaseModel):
+    """То, что можно перенести из постановления в жалобу автоматически.
+
+    Обстоятельства защиты (почему манёвр был безопасен и т.д.) сюда
+    не входят — их можно получить только от самого человека."""
+
+    applicant_name: str | None
+    applicant_address: str | None
+    applicant_phone: str | None
+    applicant_iin: str | None
+    authority_city: str | None
+    decree_kind: str | None
+    decree_number: str | None
+    decree_date: str | None
+    offense_date: str | None
+    offense_location: str | None
+    vehicle_make: str | None
+    vehicle_plate: str | None
+    article_code: str | None
+    offense_description: str | None
+    source_page: int | None
+    missing_fields: list[str] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list)
+
+
 class AppealDraftRequest(BaseModel):
     ground_id: str = "yellow_signal_no_safe_stop"
     facts: AppealFacts

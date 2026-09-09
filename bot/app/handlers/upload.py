@@ -1,26 +1,31 @@
 """Приём постановления: файл или фото пересылается на бэкенд как есть.
 
-Разбор документа и подбор оснований здесь намеренно не происходят — этого
-пока нет и на бэкенде (Этап 1 в ROADMAP.md). Бот честно говорит пользователю,
-что дальше эта часть в разработке, а не делает вид, что процесс завершён.
+После загрузки PDF бот сразу пробует разобрать документ (см. app/api_client.py
+fetch_case_facts → backend /api/cases/{case_id}/facts) и, если получилось,
+переходит к уточняющим вопросам (appeal_flow.py). Для фото автоматический
+разбор пока не поддержан на бэкенде (только PDF с текстовым слоем) — бот
+честно говорит об этом, а не делает вид, что процесс завершён.
 """
 
 from aiogram import F, Router
+from aiogram.fsm.context import FSMContext
 from aiogram.types import Message
 
 from .. import api_client
 from ..locales import t
 from ..user_state import get_lang
+from .appeal_flow import AppealStates, REQUIRED_FACT_FIELDS, ask_first_question
 
 router = Router(name="upload")
 
 
 @router.message(F.document)
-async def on_document(message: Message) -> None:
+async def on_document(message: Message, state: FSMContext) -> None:
     lang = get_lang(message.from_user.id)
     document = message.document
     await _handle_upload(
         message,
+        state,
         filename=document.file_name or "document",
         content_type=document.mime_type or "application/octet-stream",
         file_id=document.file_id,
@@ -29,12 +34,13 @@ async def on_document(message: Message) -> None:
 
 
 @router.message(F.photo)
-async def on_photo(message: Message) -> None:
+async def on_photo(message: Message, state: FSMContext) -> None:
     lang = get_lang(message.from_user.id)
     # Telegram присылает несколько размеров одного фото — берём самое крупное.
     largest = message.photo[-1]
     await _handle_upload(
         message,
+        state,
         filename=f"{largest.file_id}.jpg",
         content_type="image/jpeg",
         file_id=largest.file_id,
@@ -42,7 +48,9 @@ async def on_photo(message: Message) -> None:
     )
 
 
-async def _handle_upload(message: Message, *, filename: str, content_type: str, file_id: str, lang: str) -> None:
+async def _handle_upload(
+    message: Message, state: FSMContext, *, filename: str, content_type: str, file_id: str, lang: str
+) -> None:
     try:
         config = await api_client.fetch_config()
     except Exception:
@@ -75,3 +83,40 @@ async def _handle_upload(message: Message, *, filename: str, content_type: str, 
         return
 
     await status_message.edit_text(t(lang, "case_created", case_id=case.case_id))
+
+    if content_type != "application/pdf":
+        # Разбор без текстового слоя (vision-путь) на бэкенде ещё не готов —
+        # честно говорим об этом, а не притворяемся, что фото тоже разбирается.
+        await message.answer(t(lang, "extraction_pdf_only"))
+        return
+
+    try:
+        facts = await api_client.fetch_case_facts(case.case_id)
+    except api_client.ApiError as exc:
+        await message.answer(t(lang, "backend_offline") if not exc.status_code else str(exc))
+        return
+
+    missing_required = [field for field in REQUIRED_FACT_FIELDS if not facts.get(field)]
+    if missing_required:
+        await message.answer(t(lang, "extraction_incomplete", fields=", ".join(missing_required)))
+        return
+
+    await message.answer(
+        t(
+            lang,
+            "extracted_summary",
+            page=facts.get("source_page") or "—",
+            decree_kind=facts.get("decree_kind") or "—",
+            decree_number=facts.get("decree_number") or "—",
+            decree_date=facts.get("decree_date") or "—",
+            article_code=facts.get("article_code") or "—",
+            offense_description=facts.get("offense_description") or "—",
+            offense_date=facts.get("offense_date") or "—",
+            offense_location=facts.get("offense_location") or "—",
+            vehicle_make=facts.get("vehicle_make") or "—",
+            vehicle_plate=facts.get("vehicle_plate") or "—",
+            applicant_name=facts.get("applicant_name") or "—",
+            applicant_iin=facts.get("applicant_iin") or "—",
+        )
+    )
+    await ask_first_question(message, state, lang, case_id=case.case_id, base_facts=facts)

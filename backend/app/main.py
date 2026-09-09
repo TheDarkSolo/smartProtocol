@@ -19,10 +19,11 @@ from .schemas import (
     CaseCreated,
     CaseStatus,
     ExtractedDecreeResponse,
+    MappedAppealFacts,
     PublicConfig,
 )
 from .services.appeal_draft import UnknownGroundError, draft_appeal
-from .services.protocol_extractor import extract_decree_from_pdf
+from .services.protocol_extractor import decree_to_appeal_facts, extract_decree_from_pdf
 
 app = FastAPI(
     title="Smart Protocol API",
@@ -147,6 +148,34 @@ async def extract_case_decree(case_id: str) -> ExtractedDecreeResponse:
         device_verified_until=result.device_verified_until,
         source_page=result.source_page,
         warnings=result.warnings,
+    )
+
+
+@app.post("/api/cases/{case_id}/facts", response_model=MappedAppealFacts)
+async def case_facts(case_id: str) -> MappedAppealFacts:
+    """Разбор + перенос объективных полей документа в форму жалобы, одним
+    вызовом. То, что нельзя достать из документа (обстоятельства защиты),
+    остаётся вне этого ответа — их обязан спросить сам диалог с пользователем.
+    """
+    path = _find_uploaded_file(case_id)
+    if path.suffix.lower() != ".pdf":
+        raise HTTPException(
+            status_code=422,
+            detail="Автоматический разбор пока работает только для PDF.",
+        )
+
+    decree = extract_decree_from_pdf(path.read_bytes())
+    mapped = decree_to_appeal_facts(decree)
+
+    missing = [key for key, value in mapped.items() if value is None]
+
+    return MappedAppealFacts(
+        **mapped,
+        article_code=decree.article_code,
+        offense_description=decree.offense_description,
+        source_page=decree.source_page,
+        missing_fields=missing,
+        warnings=decree.warnings,
     )
 
 

@@ -8,11 +8,9 @@ import asyncio
 import logging
 
 from aiogram import Bot, Dispatcher
-from aiogram.client.default import DefaultBotProperties
-from aiogram.enums import ParseMode
 
 from .config import settings
-from .handlers import fallback, start, upload
+from .handlers import appeal_flow, fallback, start, upload
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("smart_protocol_bot")
@@ -25,13 +23,18 @@ async def main() -> None:
             "его в bot/.env (SPBOT_BOT_TOKEN=...)."
         )
 
-    bot = Bot(token=settings.bot_token, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
+    # Без ParseMode.HTML: в сообщениях идёт чужой текст (ответы пользователя,
+    # данные из PDF) — с включённым HTML-парсингом одиночный "<" или "&" в нём
+    # уронет отправку. Разметка нигде фактически не используется, так что
+    # безопасный дефолт ничего не отнимает.
+    bot = Bot(token=settings.bot_token)
     dispatcher = Dispatcher()
 
     # Порядок важен: fallback должен быть подключён последним, иначе он
     # перехватит сообщения, предназначенные другим роутерам.
     dispatcher.include_router(start.router)
     dispatcher.include_router(upload.router)
+    dispatcher.include_router(appeal_flow.router)
     dispatcher.include_router(fallback.router)
 
     await bot.delete_webhook(drop_pending_updates=True)
