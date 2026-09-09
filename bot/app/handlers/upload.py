@@ -14,7 +14,7 @@ from aiogram.types import Message
 from .. import api_client
 from ..locales import t
 from ..user_state import get_lang
-from .appeal_flow import GROUND_ID, start_clarification
+from .appeal_flow import start_clarification
 
 router = Router(name="upload")
 
@@ -126,11 +126,11 @@ async def _handle_upload(
         )
     )
 
-    if facts.get("supported_ground") != GROUND_ID:
-        # Документ разобран верно, но по этой статье ещё не реализовано ни
-        # одного сценария уточняющих вопросов — честно останавливаемся здесь,
-        # а не ведём человека по вопросам про светофор при превышении скорости.
-        await message.answer(t(lang, "ground_not_supported"))
-        return
-
+    # Раньше здесь была прямая проверка "supported_ground == GROUND_ID иначе
+    # отказ" — это оставалось от версии до того, как в appeal_flow.py
+    # появились меню универсальных оснований и открытый вопрос. Из-за этого
+    # start_clarification (а с ним вся новая логика) для любой статьи, кроме
+    # жёлтого сигнала, вообще не вызывался — бот всегда прыгал сразу к
+    # отказу. Теперь маршрутизация (жёлтый свет vs меню оснований vs отказ)
+    # целиком внутри start_clarification, здесь она не дублируется.
     await start_clarification(message, state, lang, case_id=case.case_id, base_facts=facts)
