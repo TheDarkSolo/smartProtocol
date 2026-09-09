@@ -71,6 +71,33 @@ class AppealFacts(BaseModel):
     continued_through_intersection: str | None = None
 
 
+class ExtractedDecreeResponse(BaseModel):
+    """Результат разбора PDF. Поле `None` значит «не нашли», не «пусто» —
+    это осознанно: фронтенд обязан показать такие поля на подтверждение
+    пользователю, а не тихо оставить дыру в жалобе (protocol-extractor)."""
+
+    decree_kind: str | None
+    decree_number: str | None
+    decree_date: str | None
+    article_code: str | None
+    offense_description: str | None
+    offense_datetime: str | None
+    offense_location: str | None
+    vehicle_make: str | None
+    vehicle_plate: str | None
+    vehicle_color: str | None
+    owner_name: str | None
+    owner_iin: str | None
+    owner_address: str | None
+    owner_phone: str | None
+    amount_kzt: float | None
+    authority_name: str | None
+    device_name: str | None
+    device_verified_until: str | None
+    source_page: int | None
+    warnings: list[str] = Field(default_factory=list)
+
+
 class AppealDraftRequest(BaseModel):
     ground_id: str = "yellow_signal_no_safe_stop"
     facts: AppealFacts

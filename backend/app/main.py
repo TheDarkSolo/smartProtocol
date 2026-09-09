@@ -13,8 +13,16 @@ from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 
 from .config import settings
-from .schemas import AppealDraftRequest, AppealDraftResponse, CaseCreated, CaseStatus, PublicConfig
+from .schemas import (
+    AppealDraftRequest,
+    AppealDraftResponse,
+    CaseCreated,
+    CaseStatus,
+    ExtractedDecreeResponse,
+    PublicConfig,
+)
 from .services.appeal_draft import UnknownGroundError, draft_appeal
+from .services.protocol_extractor import extract_decree_from_pdf
 
 app = FastAPI(
     title="Smart Protocol API",
@@ -85,6 +93,60 @@ async def create_case(file: UploadFile = File(...)) -> CaseCreated:
         filename=file.filename or "document",
         size_bytes=len(payload),
         created_at=datetime.now(timezone.utc),
+    )
+
+
+def _find_uploaded_file(case_id: str) -> Path:
+    matches = list(Path(settings.upload_dir).glob(f"{case_id}.*"))
+    if not matches:
+        raise HTTPException(status_code=404, detail="Дело не найдено.")
+    return matches[0]
+
+
+@app.post("/api/cases/{case_id}/extract", response_model=ExtractedDecreeResponse)
+async def extract_case_decree(case_id: str) -> ExtractedDecreeResponse:
+    """Разобрать уже загруженное постановление на структурированные поля.
+
+    Пока это только PDF-путь (см. protocol_extractor.py): текстовый слой,
+    который реально есть в постановлениях из госприложения. Фото и сканы без
+    текстового слоя — резервный vision-путь, отдельный от этого эндпоинта, на
+    этапе 1 ещё не реализован.
+
+    Каждое поле в ответе, включая `None`, обязано быть показано пользователю
+    на подтверждение — сервис не подставляет уверенные догадки вместо данных,
+    которых не нашёл.
+    """
+    path = _find_uploaded_file(case_id)
+    if path.suffix.lower() != ".pdf":
+        raise HTTPException(
+            status_code=422,
+            detail="Автоматический разбор пока работает только для PDF.",
+        )
+
+    payload = path.read_bytes()
+    result = extract_decree_from_pdf(payload)
+
+    return ExtractedDecreeResponse(
+        decree_kind=result.decree_kind,
+        decree_number=result.decree_number,
+        decree_date=result.decree_date,
+        article_code=result.article_code,
+        offense_description=result.offense_description,
+        offense_datetime=result.offense_datetime,
+        offense_location=result.offense_location,
+        vehicle_make=result.vehicle_make,
+        vehicle_plate=result.vehicle_plate,
+        vehicle_color=result.vehicle_color,
+        owner_name=result.owner_name,
+        owner_iin=result.owner_iin,
+        owner_address=result.owner_address,
+        owner_phone=result.owner_phone,
+        amount_kzt=result.amount_kzt,
+        authority_name=result.authority_name,
+        device_name=result.device_name,
+        device_verified_until=result.device_verified_until,
+        source_page=result.source_page,
+        warnings=result.warnings,
     )
 
 
